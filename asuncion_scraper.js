@@ -1,6 +1,6 @@
 const fetch = require('node-fetch');
 const cheerio = require('cheerio');
-const { saveMetrics, logScrapeRun } = require('../storage');
+const { saveMetrics, logScrapeRun } = require('./storage');
 
 const SOURCE = 'asuncion_municipal';
 

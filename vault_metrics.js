@@ -1,5 +1,5 @@
-const supabase = require('../supabase');
-const { saveMetrics, logScrapeRun } = require('../storage');
+const supabase = require('./supabase');
+const { saveMetrics, logScrapeRun } = require('./storage');
 
 const SOURCE = 'cierre_vault';
 

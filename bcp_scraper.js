@@ -1,6 +1,6 @@
 const fetch = require('node-fetch');
 const XLSX = require('xlsx');
-const { saveMetrics, logScrapeRun } = require('../storage');
+const { saveMetrics, logScrapeRun } = require('./storage');
 
 const SOURCE = 'bcp';
 
