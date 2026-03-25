@@ -1,0 +1,20 @@
+{
+  "name": "cierre-market-watcher",
+  "version": "1.0.0",
+  "description": "Paraguay Real Estate Market Intelligence",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-cron": "^3.0.3",
+    "node-fetch": "^2.7.0",
+    "cheerio": "^1.0.0-rc.12",
+    "@supabase/supabase-js": "^2.38.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "xlsx": "^0.18.5",
+    "pdf-parse": "^1.1.1"
+  }
+}
