@@ -5,7 +5,6 @@ const { saveMetrics, logScrapeRun } = require('./storage');
 const SOURCE = 'ine';
 const BASE_URL = 'https://www.ine.gov.py';
 
-// Known INE dataset URLs for population projections
 const DATASET_URLS = [
   'https://www.ine.gov.py/microdatos/?cant=27&tema=Proyecciones+de+Población',
 ];
@@ -18,7 +17,7 @@ async function fetchPage(url) {
     });
     return await res.text();
   } catch(e) {
-    console.error(`[INE] Failed to fetch ${url}:`, e.message);
+    console.error('[INE] Failed to fetch ' + url + ':', e.message);
     return null;
   }
 }
@@ -33,7 +32,7 @@ async function downloadXLS(url) {
     const workbook = XLSX.read(buffer, { type: 'buffer' });
     return workbook;
   } catch(e) {
-    console.error(`[INE] Failed to download XLS ${url}:`, e.message);
+    console.error('[INE] Failed to download XLS ' + url + ':', e.message);
     return null;
   }
 }
@@ -44,61 +43,102 @@ function parsePopulationWorkbook(workbook, sourceUrl) {
   for (const sheetName of workbook.SheetNames.slice(0, 5)) {
     const sheet = workbook.Sheets[sheetName];
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+    if (!data || data.length < 2) continue;
+
+    let headerRowIdx = -1;
+    let yearCols = {};
     
-    // Look for rows with year + population data
-    for (const row of data) {
-      if (!row || row.length < 2) continue;
-      
-      // Try to find year column and value column
-      for (let i = 0; i < row.length; i++) {
-        const cell = row[i];
-        if (typeof cell === 'number' && cell >= 2000 && cell <= 2030) {
-          // This looks like a year
-          const year = Math.floor(cell);
-          const value = row[i + 1];
-          
-          if (typeof value === 'number' && value > 1000) {
-            // Determine geography from sheet name
-            const geoName = sheetName.includes('Paraguay') ? 'Paraguay' :
-                           sheetName.includes('Central') ? 'Central' :
-                           sheetName.includes('Asunción') || sheetName.includes('Asuncion') ? 'Asunción' :
-                           sheetName;
-            
+    for (let r = 0; r < Math.min(10, data.length); r++) {
+      const row = data[r];
+      if (!row) continue;
+      let yearCount = 0;
+      for (let c = 0; c < row.length; c++) {
+        const val = row[c];
+        if (typeof val === 'number' && val >= 2000 && val <= 2030) {
+          yearCols[c] = Math.floor(val);
+          yearCount++;
+        }
+      }
+      if (yearCount >= 5) { headerRowIdx = r; break; }
+    }
+
+    if (headerRowIdx >= 0 && Object.keys(yearCols).length > 0) {
+      for (let r = headerRowIdx + 1; r < Math.min(headerRowIdx + 20, data.length); r++) {
+        const row = data[r];
+        if (!row) continue;
+        const label = String(row[0] || row[1] || '').toLowerCase();
+        const isTotal = label.includes('total') || label.includes('ambos') || label === '' || r === headerRowIdx + 1;
+        if (!isTotal) continue;
+
+        for (const [col, year] of Object.entries(yearCols)) {
+          const val = row[parseInt(col)];
+          if (typeof val === 'number' && val > 500000 && val < 20000000) {
             metrics.push({
               source: SOURCE,
               dataset_name: 'population_projection',
               period_type: 'yearly',
               period_year: year,
-              geography_type: geoName === 'Paraguay' ? 'national' : 'department',
-              geography_name: geoName,
+              geography_type: 'national',
+              geography_name: 'Paraguay',
               metric_name: 'population',
-              metric_value: value,
+              metric_value: Math.round(val),
               unit: 'persons',
               confidence_level: 'high',
               source_url: sourceUrl,
-              notes: `Sheet: ${sheetName}`
+              notes: 'Sheet: ' + sheetName
             });
+          }
+        }
+        break;
+      }
+    } else {
+      for (const row of data) {
+        if (!row || row.length < 2) continue;
+        for (let i = 0; i < row.length - 1; i++) {
+          const cell = row[i];
+          if (typeof cell === 'number' && cell >= 2000 && cell <= 2030) {
+            const year = Math.floor(cell);
+            const value = row[i + 1];
+            if (typeof value === 'number' && value > 1000000 && value < 20000000) {
+              metrics.push({
+                source: SOURCE,
+                dataset_name: 'population_projection',
+                period_type: 'yearly',
+                period_year: year,
+                geography_type: 'national',
+                geography_name: 'Paraguay',
+                metric_name: 'population',
+                metric_value: Math.round(value),
+                unit: 'persons',
+                confidence_level: 'high',
+                source_url: sourceUrl,
+                notes: 'Sheet: ' + sheetName + ' (fallback)'
+              });
+            }
           }
         }
       }
     }
   }
   
-  return metrics;
+  const seen = new Set();
+  return metrics.filter(m => {
+    const key = m.period_year + '_' + m.geography_name;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function scrapeINE() {
   console.log('[INE] Starting scrape...');
-  const runId = `run_${Date.now()}_ine`;
   let totalMetrics = 0;
   let filesDownloaded = 0;
   
   try {
-    // Fetch the main INE population page
     const html = await fetchPage(DATASET_URLS[0]);
     if (!html) throw new Error('Could not fetch INE page');
     
-    // Find XLS/CSV download links
     const xlsLinks = [];
     const matches = html.matchAll(/href="([^"]*\.(xls|xlsx|csv)[^"]*)"/gi);
     for (const match of matches) {
@@ -107,11 +147,10 @@ async function scrapeINE() {
       xlsLinks.push(url);
     }
     
-    console.log(`[INE] Found ${xlsLinks.length} data files`);
+    console.log('[INE] Found ' + xlsLinks.length + ' data files');
     
-    // Download and parse each file
     for (const url of xlsLinks.slice(0, 5)) {
-      console.log(`[INE] Downloading: ${url}`);
+      console.log('[INE] Downloading: ' + url);
       const workbook = await downloadXLS(url);
       if (!workbook) continue;
       
@@ -121,46 +160,14 @@ async function scrapeINE() {
       if (metrics.length > 0) {
         const saved = await saveMetrics(metrics);
         totalMetrics += saved;
-        console.log(`[INE] Saved ${saved} metrics from ${url}`);
+        console.log('[INE] Saved ' + saved + ' metrics from ' + url);
       }
       
       await new Promise(r => setTimeout(r, 1000));
     }
     
-    // If no XLS found, try to extract numbers from the page
-    if (xlsLinks.length === 0 && html) {
-      console.log('[INE] No XLS found, extracting from page...');
-      // Look for population numbers in the HTML
-      const popMatches = html.matchAll(/(\d{4}).*?(\d{1,3}(?:[.,]\d{3})+)/g);
-      const metrics = [];
-      for (const m of popMatches) {
-        const year = parseInt(m[1]);
-        if (year >= 2015 && year <= 2030) {
-          const value = parseFloat(m[2].replace(/[.,]/g, '').slice(0, -3));
-          if (value > 1000000) {
-            metrics.push({
-              source: SOURCE,
-              dataset_name: 'population_page',
-              period_type: 'yearly',
-              period_year: year,
-              geography_type: 'national',
-              geography_name: 'Paraguay',
-              metric_name: 'population',
-              metric_value: value,
-              unit: 'persons',
-              confidence_level: 'medium',
-              source_url: DATASET_URLS[0]
-            });
-          }
-        }
-      }
-      if (metrics.length) {
-        totalMetrics = await saveMetrics(metrics);
-      }
-    }
-    
     await logScrapeRun(SOURCE, 'success', totalMetrics, filesDownloaded, null);
-    console.log(`[INE] Complete. Metrics: ${totalMetrics}, Files: ${filesDownloaded}`);
+    console.log('[INE] Complete. Metrics: ' + totalMetrics + ', Files: ' + filesDownloaded);
     return { source: SOURCE, status: 'success', metrics: totalMetrics, files: filesDownloaded };
     
   } catch(e) {
