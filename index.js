@@ -10,11 +10,12 @@ app.use(express.json());
 // Allow browser preflight
 app.options('*', cors());
 
-const { scrapeINE } = require('./scrapers/ine_scraper');
-const { scrapeBCP } = require('./scrapers/bcp_scraper');
-const { scrapeMigraciones } = require('./scrapers/migraciones_scraper');
-const { scrapeAsuncion } = require('./scrapers/asuncion_scraper');
-const { scrapeVaultMetrics } = require('./scrapers/vault_metrics');
+let scrapeINE, scrapeBCP, scrapeMigraciones, scrapeAsuncion, scrapeVaultMetrics;
+try { ({ scrapeINE } = require('./scrapers/ine_scraper')); } catch(e) { try { ({ scrapeINE } = require('./ine_scraper')); } catch(e2) { scrapeINE = async () => ({ source:'ine', status:'skipped', error:'not found' }); } }
+try { ({ scrapeBCP } = require('./scrapers/bcp_scraper')); } catch(e) { try { ({ scrapeBCP } = require('./bcp_scraper')); } catch(e2) { scrapeBCP = async () => ({ source:'bcp', status:'skipped', error:'not found' }); } }
+try { ({ scrapeMigraciones } = require('./scrapers/migraciones_scraper')); } catch(e) { try { ({ scrapeMigraciones } = require('./migraciones_scraper')); } catch(e2) { scrapeMigraciones = async () => ({ source:'migraciones', status:'skipped', error:'not found' }); } }
+try { ({ scrapeAsuncion } = require('./scrapers/asuncion_scraper')); } catch(e) { try { ({ scrapeAsuncion } = require('./asuncion_scraper')); } catch(e2) { scrapeAsuncion = async () => ({ source:'asuncion', status:'skipped', error:'not found' }); } }
+try { ({ scrapeVaultMetrics } = require('./scrapers/vault_metrics')); } catch(e) { try { ({ scrapeVaultMetrics } = require('./vault_metrics')); } catch(e2) { scrapeVaultMetrics = async () => ({ source:'vault', status:'skipped', error:'not found' }); } }
 const { getMetrics, getLatestRuns } = require('./storage');
 
 // Run all scrapers
